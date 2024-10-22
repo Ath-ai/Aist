@@ -17,41 +17,24 @@ def generate_subtitles(video_file_path):
     clip = VideoFileClip(video_file_path)
     
     # Save audio as a temporary file
-    temp_audio_file = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
+    temp_audio_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
     audio_path = temp_audio_file.name
     clip.audio.write_audiofile(audio_path)
-    
+
     # Load Whisper model
     model = whisper.load_model("base")
-    
-    # Load audio file using moviepy
-    audio_clip = AudioFileClip(audio_path)
-    duration = audio_clip.duration
-    segment_duration = 30  # Transcribe in 30-second segments
+
+    # Transcribe the audio file
+    result = model.transcribe(audio_path, task="transcribe")
+
+    # Create SRT format subtitles
     subtitles = []
+    for i, segment in enumerate(result['segments']):
+        start_time = format_time(segment['start'])
+        end_time = format_time(segment['end'])
+        text = segment['text'].strip()
 
-    # Process audio in segments
-    for start in np.arange(0, duration, segment_duration):
-        end = min(start + segment_duration, duration)
-
-        # Slicing the audio and saving it as a temporary file
-        audio_segment = audio_clip.subclip(start, end)
-        temp_segment_file = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
-        audio_segment.write_audiofile(temp_segment_file.name)
-
-        # Transcribe the audio segment
-        result = model.transcribe(temp_segment_file.name, task="transcribe")
-
-        # Create SRT format subtitles
-        for segment in result['segments']:
-            segment_start = start + segment['start']
-            segment_end = start + segment['end']
-            text = segment['text'].strip()
-
-            # Format the timing in SRT format
-            start_time = format_time(segment_start)
-            end_time = format_time(segment_end)
-            subtitles.append(f"{len(subtitles) + 1}\n{start_time} --> {end_time}\n{text}\n")
+        subtitles.append(f"{i + 1}\n{start_time} --> {end_time}\n{text}\n")
     
     return "\n".join(subtitles)
 
