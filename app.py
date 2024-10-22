@@ -1,14 +1,17 @@
 import streamlit as st
 import whisper
 import os
-from moviepy.editor import VideoFileClip
 import tempfile
+from moviepy.editor import VideoFileClip
+import numpy as np
 
-# Set up the Streamlit App layout
-st.title('Video Subtitles Generator')
-st.write("Upload a video file, and the system will generate subtitles for you!")
+# Function to format time in SRT format
+def format_time(seconds):
+    ms = int((seconds % 1) * 1000)
+    time_str = f"{int(seconds // 3600):02}:{int((seconds % 3600) // 60):02}:{int(seconds % 60):02},{ms:03}"
+    return time_str
 
-# Function to generate subtitles
+# Function to generate subtitles from video file
 def generate_subtitles(video_file_path):
     # Extract audio from the video
     clip = VideoFileClip(video_file_path)
@@ -21,30 +24,40 @@ def generate_subtitles(video_file_path):
     # Load Whisper model
     model = whisper.load_model("base")
     
-    # Transcribe the audio file
-    result = model.transcribe(audio_path)
-    
-    # Create SRT format subtitles
+    # Load audio file using moviepy
+    audio_clip = AudioFileClip(audio_path)
+    duration = audio_clip.duration
+    segment_duration = 30  # Transcribe in 30-second segments
     subtitles = []
-    for segment in result['segments']:
-        start = segment['start']
-        end = segment['end']
-        text = segment['text']
-        
-        # Format the timing in SRT format
-        start_time = format_time(start)
-        end_time = format_time(end)
-        
-        subtitles.append(f"{len(subtitles) + 1}\n{start_time} --> {end_time}\n{text}\n")
+
+    # Process audio in segments
+    for start in np.arange(0, duration, segment_duration):
+        end = min(start + segment_duration, duration)
+
+        # Slicing the audio and saving it as a temporary file
+        audio_segment = audio_clip.subclip(start, end)
+        temp_segment_file = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
+        audio_segment.write_audiofile(temp_segment_file.name)
+
+        # Transcribe the audio segment
+        result = model.transcribe(temp_segment_file.name, task="transcribe")
+
+        # Create SRT format subtitles
+        for segment in result['segments']:
+            segment_start = start + segment['start']
+            segment_end = start + segment['end']
+            text = segment['text'].strip()
+
+            # Format the timing in SRT format
+            start_time = format_time(segment_start)
+            end_time = format_time(segment_end)
+            subtitles.append(f"{len(subtitles) + 1}\n{start_time} --> {end_time}\n{text}\n")
     
-    # Return subtitles in SRT format
     return "\n".join(subtitles)
 
-# Function to format time in SRT format
-def format_time(seconds):
-    ms = int((seconds % 1) * 1000)
-    time_str = f"{int(seconds // 3600):02}:{int((seconds % 3600) // 60):02}:{int(seconds % 60):02},{ms:03}"
-    return time_str
+# Set up the Streamlit App layout
+st.title('Video Subtitles Generator')
+st.write("Upload a video file, and the system will generate subtitles for you!")
 
 # File uploader
 uploaded_file = st.file_uploader("Upload a video file", type=['mp4', 'mkv', 'avi', 'mov'])
